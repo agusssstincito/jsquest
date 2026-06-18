@@ -4,15 +4,18 @@ import type { Course } from '@/types'
 
 interface CourseCardProps {
   course: Course
+  sectionSlug?: string
   completedItems?: number
   totalItems?: number
 }
 
-export function CourseCard({ course, completedItems = 0, totalItems = 0 }: CourseCardProps) {
+export function CourseCard({ course, sectionSlug, completedItems = 0, totalItems = 0 }: CourseCardProps) {
   const progress = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0
 
+  const href = sectionSlug ? `/${sectionSlug}/${course.slug}` : `/courses/${course.slug}`
+
   return (
-    <Link href={`/courses/${course.slug}`}>
+    <Link href={href}>
       <div className="group relative bg-[#0d1424] border border-white/5 hover:border-brand-500/30 rounded-xl p-5 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lg hover:shadow-brand-500/5 h-full flex flex-col">
         
         {/* Top accent line */}

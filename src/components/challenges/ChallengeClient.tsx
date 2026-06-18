@@ -14,10 +14,11 @@ import type { Challenge, TestCase, TestCaseResult } from '@/types'
 interface ChallengeClientProps {
   challenge: Challenge & { test_cases: TestCase[] }
   courseSlug: string
+  sectionSlug: string
   nextChallengeSlug: string | null
 }
 
-export function ChallengeClient({ challenge, courseSlug, nextChallengeSlug }: ChallengeClientProps) {
+export function ChallengeClient({ challenge, courseSlug, sectionSlug, nextChallengeSlug }: ChallengeClientProps) {
   const { isSignedIn } = useUser()
   const [code, setCode] = useState(challenge.starter_code)
   const [results, setResults] = useState<TestCaseResult[] | null>(null)
@@ -90,13 +91,13 @@ export function ChallengeClient({ challenge, courseSlug, nextChallengeSlug }: Ch
                   </SignInButton>
                 )}
                 {nextChallengeSlug ? (
-                  <Link href={`/challenge/${courseSlug}/${nextChallengeSlug}`}>
+                  <Link href={`/${sectionSlug}/${courseSlug}/${nextChallengeSlug}`}>
                     <Button size="sm" className="gap-1 cursor-pointer">
                       Next <ArrowRight size={12} />
                     </Button>
                   </Link>
                 ) : (
-                  <Link href={`/courses/${courseSlug}`}>
+                  <Link href={`/${sectionSlug}/${courseSlug}`}>
                     <Button size="sm" variant="secondary" className="cursor-pointer">
                       Back to course
                     </Button>

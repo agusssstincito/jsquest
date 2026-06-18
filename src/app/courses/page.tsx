@@ -1,5 +1,6 @@
 import { getSectionsWithCourses } from '@/lib/supabase/queries'
 import { CourseCard } from '@/components/courses/CourseCard'
+import Link from 'next/link'
 
 const sectionColors: Record<string, { gradient: string; border: string; label: string }> = {
   'javascript-basics': { gradient: 'from-blue-500/5 to-cyan-500/5', border: 'border-blue-500/10', label: 'text-blue-400' },
@@ -30,9 +31,12 @@ export default async function CoursesPage() {
           return (
             <div key={section.id}>
               <div className="flex items-center gap-3 mb-2">
-                <span className={`text-xs font-semibold uppercase tracking-widest ${colors.label}`}>
-                  {section.title}
-                </span>
+                <Link 
+                  href={`/${section.slug}`}
+                  className={`text-xs font-semibold uppercase tracking-widest ${colors.label} hover:text-white transition-colors`}
+                >
+                  {section.title} →
+                </Link>
                 <div className={`flex-1 h-px bg-gradient-to-r ${colors.gradient} border-t ${colors.border}`} />
               </div>
               {section.description && (
@@ -40,7 +44,7 @@ export default async function CoursesPage() {
               )}
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {section.courses?.map((course) => (
-                  <CourseCard key={course.id} course={course} />
+                  <CourseCard key={course.id} course={course} sectionSlug={section.slug} />
                 ))}
               </div>
             </div>

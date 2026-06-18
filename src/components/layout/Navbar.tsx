@@ -24,6 +24,12 @@ export function Navbar() {
             Courses
           </Link>
 
+          {isSignedIn && (
+            <Link href="/dashboard" className="text-sm text-slate-400 hover:text-white transition-colors">
+              Dashboard
+            </Link>
+          )}
+
           {isSignedIn ? (
             <UserButton />
           ) : (
@@ -52,6 +58,11 @@ export function Navbar() {
           <Link href="/courses" className="text-slate-400 hover:text-white text-sm" onClick={() => setMenuOpen(false)}>
             Courses
           </Link>
+          {isSignedIn && (
+            <Link href="/dashboard" className="text-slate-400 hover:text-white text-sm" onClick={() => setMenuOpen(false)}>
+              Dashboard
+            </Link>
+          )}
           {isSignedIn ? (
             <UserButton />
           ) : (

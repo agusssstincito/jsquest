@@ -27,11 +27,7 @@ export async function getSectionsWithCourses(): Promise<(Section & { courses: Co
 }
 
 // Un curso por slug, con lecciones y challenges
-export async function getCourseBySlug(slug: string): Promise<(Course & {
-  lessons: Lesson[]
-  challenges: Challenge[]
-  dom_challenges: DomChallenge[]
-}) | null> {
+export async function getCourseBySlug(slug: string) {
   const supabase = createServerClient()
   const { data, error } = await supabase
     .from('courses')
@@ -39,9 +35,13 @@ export async function getCourseBySlug(slug: string): Promise<(Course & {
       *,
       lessons (*),
       challenges (*),
-      dom_challenges (*)
+      dom_challenges (*),
+      section:sections(slug, title)
     `)
     .eq('slug', slug)
+    .order('order_index', { referencedTable: 'lessons' })
+    .order('order_index', { referencedTable: 'challenges' })
+    .order('order_index', { referencedTable: 'dom_challenges' })
     .single()
     
   if (error) { 
@@ -51,20 +51,44 @@ export async function getCourseBySlug(slug: string): Promise<(Course & {
   return data
 }
 
-// Una lección por slug, con sus quizzes
-export async function getLessonBySlug(
-  courseSlug: string,
-  lessonSlug: string
-): Promise<(Lesson & { quizzes: LessonQuiz[] }) | null> {
+export async function getSectionWithCourses(sectionSlug: string) {
   const supabase = createServerClient()
-  const { data: course } = await supabase
+  const { data, error } = await supabase
+    .from('sections')
+    .select(`
+      *,
+      courses (*)
+    `)
+    .eq('slug', sectionSlug)
+    .order('order_index', { referencedTable: 'courses' })
+    .single()
+    
+  if (error) { 
+    console.error('Error fetching section:', error)
+    return null 
+  }
+  return data
+}
+
+// Una lección por slug, con sus quizzes
+export async function getLessonBySlug(courseSlug: string, lessonSlug: string) {
+  const supabase = createServerClient()
+  
+  // First get the course id by slug
+  const { data: course, error: courseError } = await supabase
     .from('courses')
     .select('id')
     .eq('slug', courseSlug)
     .single()
-    
-  if (!course) return null
+  
+  if (courseError || !course) {
+    if (courseError && courseError.code !== 'PGRST116') {
+      console.error('Course lookup failed:', courseSlug, courseError)
+    }
+    return null
+  }
 
+  // Then get the lesson
   const { data, error } = await supabase
     .from('lessons')
     .select(`
@@ -73,29 +97,37 @@ export async function getLessonBySlug(
     `)
     .eq('course_id', course.id)
     .eq('slug', lessonSlug)
+    .order('order_index', { referencedTable: 'lesson_quizzes' })
     .single()
-    
-  if (error) { 
-    console.error('Error fetching lesson:', error)
-    return null 
+
+  if (error) {
+    if (error.code !== 'PGRST116') {
+      console.error('Error fetching lesson:', error)
+    }
+    return null
   }
-  return data
+  return data as (Lesson & { quizzes: LessonQuiz[] })
 }
 
 // Un challenge por slug, con test cases visibles (is_hidden = false)
-export async function getChallengeBySlug(
-  courseSlug: string,
-  challengeSlug: string
-): Promise<(Challenge & { test_cases: TestCase[] }) | null> {
+export async function getChallengeBySlug(courseSlug: string, challengeSlug: string) {
   const supabase = createServerClient()
-  const { data: course } = await supabase
+  
+  // First get the course id by slug
+  const { data: course, error: courseError } = await supabase
     .from('courses')
     .select('id')
     .eq('slug', courseSlug)
     .single()
-    
-  if (!course) return null
+  
+  if (courseError || !course) {
+    if (courseError && courseError.code !== 'PGRST116') {
+      console.error('Course lookup failed for challenge:', courseSlug, courseError)
+    }
+    return null
+  }
 
+  // Then get the challenge
   const { data, error } = await supabase
     .from('challenges')
     .select(`
@@ -107,12 +139,19 @@ export async function getChallengeBySlug(
     .eq('test_cases.is_hidden', false)
     .single()
     
+  if (error) {
+    if (error.code !== 'PGRST116') {
+      console.error('Error fetching challenge:', error)
+    }
+    return null
+  }
+
   if (data) {
     data.hints = Array.isArray(data.hints)
       ? data.hints
       : JSON.parse(data.hints as unknown as string)
   }
-  return data
+  return data as (Challenge & { test_cases: TestCase[] })
 }
 
 
@@ -136,7 +175,7 @@ export async function getAllTestCasesForChallenge(challengeId: string): Promise<
 export async function getUserProgressForCourse(
   userId: string,
   courseId: string
-): Promise<UserProgress[]> {
+): Promise<{ completedLessonIds: string[]; completedChallengeIds: string[] }> {
   const supabase = createServerClient()
   
   const { data: lessons } = await supabase
@@ -148,25 +187,44 @@ export async function getUserProgressForCourse(
     .from('challenges')
     .select('id')
     .eq('course_id', courseId)
+  
+  const { data: domChallenges } = await supabase
+    .from('dom_challenges')
+    .select('id')
+    .eq('course_id', courseId)
 
   const lessonIds = (lessons ?? []).map((l) => l.id)
   const challengeIds = (challenges ?? []).map((c) => c.id)
+  const domChallengeIds = (domChallenges ?? []).map((c) => c.id)
 
-  if (lessonIds.length === 0 && challengeIds.length === 0) return []
+  const allRelevantChallengeIds = [...challengeIds, ...domChallengeIds]
+
+  if (lessonIds.length === 0 && allRelevantChallengeIds.length === 0) {
+    return { completedLessonIds: [], completedChallengeIds: [] }
+  }
 
   const { data, error } = await supabase
     .from('user_progress')
     .select('*')
     .eq('user_id', userId)
     .or(
-      `lesson_id.in.(${lessonIds.join(',')}),challenge_id.in.(${challengeIds.join(',')})`
+      `lesson_id.in.(${lessonIds.join(',')}),challenge_id.in.(${allRelevantChallengeIds.join(',')})`
     )
     
   if (error) { 
     console.error('Error fetching user progress:', error)
-    return [] 
+    return { completedLessonIds: [], completedChallengeIds: [] }
   }
-  return data ?? []
+
+  const completedLessonIds = (data ?? [])
+    .filter(p => p.lesson_id)
+    .map(p => p.lesson_id as string)
+  
+  const completedChallengeIds = (data ?? [])
+    .filter(p => p.challenge_id)
+    .map(p => p.challenge_id as string)
+
+  return { completedLessonIds, completedChallengeIds }
 }
 
 // Marcar lección como completada
@@ -207,18 +265,24 @@ export async function markChallengeCompleted(userId: string, challengeId: string
   return true
 }
 
-export async function getDomChallengeBySlug(
-  courseSlug: string,
-  challengeSlug: string
-): Promise<(DomChallenge & { assertions: DomAssertion[] }) | null> {
+export async function getDomChallengeBySlug(courseSlug: string, challengeSlug: string) {
   const supabase = createServerClient()
-  const { data: course } = await supabase
+  
+  // First get the course id by slug
+  const { data: course, error: courseError } = await supabase
     .from('courses')
     .select('id')
     .eq('slug', courseSlug)
     .single()
-  if (!course) return null
+  
+  if (courseError || !course) {
+    if (courseError && courseError.code !== 'PGRST116') {
+      console.error('Course lookup failed for DOM challenge:', courseSlug, courseError)
+    }
+    return null
+  }
 
+  // Then get the DOM challenge
   const { data, error } = await supabase
     .from('dom_challenges')
     .select('*, assertions: dom_assertions(*)')
@@ -226,12 +290,20 @@ export async function getDomChallengeBySlug(
     .eq('slug', challengeSlug)
     .order('order_index', { referencedTable: 'dom_assertions' })
     .single()
+
+  if (error) {
+    if (error.code !== 'PGRST116') {
+      console.error('Error fetching DOM challenge:', error)
+    }
+    return null
+  }
+
   if (data) {
     data.hints = Array.isArray(data.hints)
       ? data.hints
       : JSON.parse(data.hints as unknown as string)
   }
-  return data
+  return data as (DomChallenge & { assertions: DomAssertion[] })
 }
 
 
@@ -266,3 +338,75 @@ export async function getDomChallengesByCourseSlug(courseSlug: string): Promise<
   return data ?? []
 }
 
+
+
+export async function getUserDashboardData(userId: string) {
+  const supabase = createServerClient()
+
+  // Get all sections with their courses
+  const { data: sections } = await supabase
+    .from('sections')
+    .select(`
+      id, slug, title, order_index,
+      courses (
+        id, slug, title,
+        lessons (id),
+        challenges (id)
+      )
+    `)
+    .order('order_index')
+
+  if (!sections) return []
+
+  // Get all user progress
+  const { data: progress } = await supabase
+    .from('user_progress')
+    .select('lesson_id, challenge_id, type')
+    .eq('user_id', userId)
+
+  const completedLessonIds = new Set(
+    (progress ?? []).filter(p => p.type === 'lesson').map(p => p.lesson_id)
+  )
+  const completedChallengeIds = new Set(
+    (progress ?? []).filter(p => p.type === 'challenge').map(p => p.challenge_id)
+  )
+
+  return sections.map(section => {
+    const courses = (section.courses ?? []).map(course => {
+      const totalLessons = course.lessons?.length ?? 0
+      const totalChallenges = course.challenges?.length ?? 0
+      const total = totalLessons + totalChallenges
+
+      const completedLessons = (course.lessons ?? [])
+        .filter(l => completedLessonIds.has(l.id)).length
+      const completedChallenges = (course.challenges ?? [])
+        .filter(c => completedChallengeIds.has(c.id)).length
+      const completed = completedLessons + completedChallenges
+
+      return {
+        id: course.id,
+        slug: course.slug,
+        title: course.title,
+        total,
+        completed,
+        percent: total > 0 ? Math.round((completed / total) * 100) : 0,
+      }
+    })
+
+    const sectionTotal = courses.reduce((acc, c) => acc + c.total, 0)
+    const sectionCompleted = courses.reduce((acc, c) => acc + c.completed, 0)
+    const sectionPercent = sectionTotal > 0
+      ? Math.round((sectionCompleted / sectionTotal) * 100)
+      : 0
+
+    return {
+      id: section.id,
+      slug: section.slug,
+      title: section.title,
+      courses,
+      total: sectionTotal,
+      completed: sectionCompleted,
+      percent: sectionPercent,
+    }
+  })
+}

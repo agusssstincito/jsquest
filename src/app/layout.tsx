@@ -11,8 +11,8 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <ClerkProvider
-      afterSignInUrl="/dashboard"
-      afterSignUpUrl="/dashboard"
+      signInFallbackRedirectUrl="/dashboard"
+      signUpFallbackRedirectUrl="/dashboard"
     >
       <html lang="en">
         <body className="bg-[#0a0f1e] min-h-screen text-white antialiased">
